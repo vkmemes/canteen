@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Интерфейс Кассы</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #f4f4f4; }
+        .kassa-container { background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); width: 400px; text-align: center; }
+        .employee-info { border-top: 1px solid #ddd; padding-top: 20px; margin-top: 20px; }
+        .employee-info img { width: 100px; height: 100px; border-radius: 50%; object-fit: cover; margin-bottom: 10px; border: 3px solid #007bff; }
+        .balance { font-size: 24px; font-weight: bold; margin: 15px 0; color: #28a745; }
+        input[type="text"], input[type="number"] { width: 90%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; font-size: 16px; }
+        button { background-color: #007bff; color: white; padding: 12px; border: none; border-radius: 5px; cursor: pointer; font-size: 18px; width: 90%; margin-top: 10px; }
+        button:hover { background-color: #0056b3; }
+        .message { padding: 15px; border-radius: 5px; margin-top: 20px; font-weight: bold; font-size: 20px; }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .label { font-weight: bold; display: block; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="kassa-container">
+    <h2>Оплата в Столовой (Касса)</h2>
+    <input type="text" id="barcodeInput" placeholder="Введите или считайте Штрих-код" autofocus>
+    <div id="employeeBlock" style="display: none;">
+        <div class="employee-info">
+            <img id="employeePhoto" src="" alt="Фото сотрудника">
+            <p>ФИО: <strong id="employeeFio"></strong></p>
+            <p>Статус: <strong id="employeeStatus"></strong></p>
+            <p>Доступно: <span class="balance" id="totalAvailable">0.00 руб.</span></p>
+        </div>
+        
+        <label for="amountInput" class="label">Сумма обеда (до 500р):</label>
+        <input type="number" id="amountInput" placeholder="Сумма" min="1" max="500">
+        
+        <button id="payButton">ОТПРАВИТЬ (Оплатить)</button>
+        <button id="resetButton" style="background-color: #dc3545;">СБРОС</button>
+    </div>
+    
+    <div id="messageBlock" class="message" style="display: none;"></div>
+</div>
+
+<script>
+    const API_BASE_URL = 'http://127.0.0.1:5000/api/';
+    
+    const barcodeInput = document.getElementById('barcodeInput');
+    const employeeBlock = document.getElementById('employeeBlock');
+    const payButton = document.getElementById('payButton');
+    const resetButton = document.getElementById('resetButton');
+    const messageBlock = document.getElementById('messageBlock');
+    
+    // Функция сброса интерфейса
+    function resetInterface() {
+        employeeBlock.style.display = 'none';
+        messageBlock.style.display = 'none';
+        barcodeInput.value = '';
+        document.getElementById('amountInput').value = '';
+        barcodeInput.focus();
+    }
+    
+    // Обработка считывания штрих-кода
+    barcodeInput.addEventListener('change', async () => {
+        const barcode = barcodeInput.value.trim();
+        if (!barcode) return;
+
+        try {
+            const response = await fetch(API_BASE_URL + 'check_employee', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ barcode: barcode })
+            });
+
+            const data = await response.json();
+            messageBlock.style.display = 'none';
+
+            if (data.success) {
+                document.getElementById('employeePhoto').src = data.photo_url;
+                document.getElementById('employeeFio').textContent = data.fio;
+                document.getElementById('employeeStatus').textContent = data.status;
+                document.getElementById('totalAvailable').textContent = `${data.total_available.toFixed(2)} руб.`;
+                employeeBlock.style.display = 'block';
+                document.getElementById('amountInput').focus();
+            } else {
+                displayMessage('Пропуск не найден или ошибка: ' + data.error, 'error');
+                resetInterfaceDelayed();
+            }
+
+        } catch (error) {
+            displayMessage('Ошибка соединения с сервером', 'error');
+            console.error('Fetch error:', error);
+            resetInterfaceDelayed();
+        }
+    });
+
+    // Обработка оплаты
+    payButton.addEventListener('click', async () => {
+        const barcode = barcodeInput.value.trim();
+        const amount = parseFloat(document.getElementById('amountInput').value);
+
+        if (!barcode || !amount || amount <= 0) {
+            displayMessage('Введите корректную сумму', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch(API_BASE_URL + 'pay', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    barcode: barcode,
+                    amount: amount,
+                    location: "Столовая 1" // Здесь будет фактическое место
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                displayMessage(`ОПЛАЧЕНО! ${data.details}`, 'success');
+            } else {
+                displayMessage(`ОТКАЗ: ${data.error}`, 'error');
+            }
+            
+            // Сброс интерфейса после успешной/неуспешной транзакции
+            resetInterfaceDelayed(3000); 
+
+        } catch (error) {
+            displayMessage('Ошибка при обработке платежа', 'error');
+            console.error('Payment error:', error);
+            resetInterfaceDelayed(3000);
+        }
+    });
+    
+    resetButton.addEventListener('click', resetInterface);
+    
+    // Вспомогательная функция для отображения сообщений
+    function displayMessage(text, type) {
+        messageBlock.textContent = text;
+        messageBlock.className = `message ${type}`;
+        messageBlock.style.display = 'block';
+    }
+
+    // Вспомогательная функция для сброса с задержкой
+    function resetInterfaceDelayed(delay = 500) {
+        setTimeout(resetInterface, delay);
+    }
+    
+    // Инициализация
+    resetInterface(); 
+</script>
+
+</body>
+</html>
